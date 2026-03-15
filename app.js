@@ -266,8 +266,8 @@ function resetToEmptyState() {
   clearBalloons();
   quizSessionId += 1;
   currentMode = "placeholder";
-  practiceTitle.textContent = "Upload a file to unlock your review deck";
-  practiceStatus.textContent = "Your words, meanings, and examples will stay organized here.";
+  practiceTitle.textContent = "No deck loaded yet";
+  practiceStatus.textContent = "Upload a CSV above to get started.";
   modePlaceholderTitle.textContent = "Upload a file to unlock your review deck";
   modePlaceholderText.textContent =
     "Once your CSV is loaded, use Flash Card for card review or Start Practice for a timed quiz.";
