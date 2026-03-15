@@ -1,7 +1,9 @@
 import json
+import logging
 import os
 import random
 import re
+import time
 from dataclasses import dataclass
 from functools import partial
 from http import HTTPStatus
@@ -13,12 +15,19 @@ from dotenv import dotenv_values
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("vocab-forge")
+
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_HOST = "127.0.0.1"
+DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
-DEFAULT_GLM_API_BASE = "https://api.z.ai/api/coding/paas/v4/chat/completions"
-DEFAULT_GLM_MODEL = "glm-4.7"
+DEFAULT_LLM_API_BASE = "https://api.z.ai/api/coding/paas/v4/chat/completions"
+DEFAULT_LLM_MODEL = "glm-4.7"
 
 
 @dataclass
@@ -62,17 +71,16 @@ class MembeanHandler(SimpleHTTPRequestHandler):
         api_key = first_env(
             env,
             os.environ,
-            "GLM_API_KEY",
-            "ZHIPU_API_KEY",
-            "ZHIPUAI_API_KEY",
+            "LLM_API_KEY"
         )
 
-        api_base = first_env(env, os.environ, "GLM_API_BASE") or DEFAULT_GLM_API_BASE
-        model = first_env(env, os.environ, "GLM_MODEL") or DEFAULT_GLM_MODEL
+        api_base = first_env(env, os.environ, "LLM_API_BASE", "GLM_API_BASE") or DEFAULT_LLM_API_BASE
+        model = first_env(env, os.environ, "LLM_MODEL", "GLM_MODEL") or DEFAULT_LLM_MODEL
+        log.info("LLM request — word=%r, model=%s, api_base=%s", word, model, api_base)
 
         if api_key:
             try:
-                quiz_item = generate_with_glm(
+                quiz_item = generate_with_llm(
                     word=word,
                     meaning=meaning,
                     example=example,
@@ -81,7 +89,7 @@ class MembeanHandler(SimpleHTTPRequestHandler):
                     model=model,
                 )
             except Exception as error:
-                print(f"[DEBUG] GLM API failed: {error}")
+                log.error("LLM API failed for word=%r: %s", word, error, exc_info=True)
                 quiz_item = create_fallback_quiz_item(
                     word=word,
                     meaning=meaning,
@@ -89,11 +97,12 @@ class MembeanHandler(SimpleHTTPRequestHandler):
                     reason=str(error),
                 )
         else:
+            log.warning("LLM_API_KEY not found in .env or environment — using fallback question generator")
             quiz_item = create_fallback_quiz_item(
                 word=word,
                 meaning=meaning,
                 example=example,
-                reason="GLM_API_KEY not found in .env or environment.",
+                reason="LLM_API_KEY not found in .env or environment.",
             )
 
         self.send_json(HTTPStatus.OK, {
@@ -125,7 +134,7 @@ def first_env(dotenv_values: Dict[str, str], environ: Dict[str, str], *keys: str
     return None
 
 
-def generate_with_glm(
+def generate_with_llm(
     *,
     word: str,
     meaning: str,
@@ -134,7 +143,7 @@ def generate_with_glm(
     api_base: str,
     model: str,
 ) -> QuizItem:
-    prompt = build_glm_prompt(word=word, meaning=meaning, example=example)
+    prompt = build_llm_prompt(word=word, meaning=meaning, example=example)
     request_body = {
         "model": model,
         "stream": False,
@@ -157,6 +166,8 @@ def generate_with_glm(
         ],
     }
 
+    log.debug("LLM request body:\n%s", json.dumps(request_body, indent=2, ensure_ascii=False))
+
     request = Request(
         api_base,
         data=json.dumps(request_body).encode("utf-8"),
@@ -167,24 +178,47 @@ def generate_with_glm(
         method="POST",
     )
 
+    t0 = time.monotonic()
     try:
         with urlopen(request, timeout=45) as response:
             raw_response = response.read().decode("utf-8")
     except HTTPError as error:
+        elapsed = time.monotonic() - t0
         error_body = error.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"GLM API HTTP {error.code}: {error_body}") from error
+        log.error("LLM HTTP %d after %.2fs: %s", error.code, elapsed, error_body)
+        raise RuntimeError(f"LLM API HTTP {error.code}: {error_body}") from error
     except URLError as error:
-        raise RuntimeError(f"GLM API request failed: {error.reason}") from error
+        elapsed = time.monotonic() - t0
+        log.error("LLM connection failed after %.2fs: %s", elapsed, error.reason)
+        raise RuntimeError(f"LLM API request failed: {error.reason}") from error
 
-    print(f"[DEBUG] GLM raw response: {raw_response[:1000]}")
+    elapsed = time.monotonic() - t0
+    log.info("LLM response received in %.2fs (%d bytes)", elapsed, len(raw_response))
+    log.debug("LLM raw response: %s", raw_response)
+
     data = json.loads(raw_response)
+    usage = data.get("usage", {})
+    if usage:
+        log.info(
+            "LLM token usage — prompt=%s, completion=%s, total=%s",
+            usage.get("prompt_tokens", "?"),
+            usage.get("completion_tokens", "?"),
+            usage.get("total_tokens", "?"),
+        )
+
     content = data["choices"][0]["message"]["content"]
-    print(f"[DEBUG] GLM raw content: {content[:500]}")
+    log.debug("LLM content: %s", content[:1000])
     parsed = extract_json_object(content)
-    return validate_quiz_item(parsed, word=word, meaning=meaning)
+    log.debug("LLM parsed JSON: %s", json.dumps(parsed, indent=2, ensure_ascii=False))
+    quiz_item = validate_quiz_item(parsed, word=word, meaning=meaning)
+    log.info(
+        "LLM quiz item — word=%r, question=%r, source=%s, correct=%s",
+        word, quiz_item.question[:80], quiz_item.source, quiz_item.correct_option_ids,
+    )
+    return quiz_item
 
 
-def build_glm_prompt(*, word: str, meaning: str, example: str) -> str:
+def build_llm_prompt(*, word: str, meaning: str, example: str) -> str:
     example_text = example or "No example sentence was provided."
     return f"""
 Create a Membean-style multiple choice vocabulary question.
@@ -232,7 +266,7 @@ def extract_json_object(text: str) -> Dict[str, object]:
     start = stripped.find("{")
     end = stripped.rfind("}")
     if start == -1 or end == -1:
-        raise ValueError("GLM response did not contain a JSON object")
+        raise ValueError("LLM response did not contain a JSON object")
 
     return json.loads(stripped[start:end + 1])
 
@@ -248,7 +282,7 @@ def validate_quiz_item(payload: Dict[str, object], *, word: str, meaning: str) -
         selection_mode = "single"
 
     if not question or not isinstance(raw_options, list) or len(raw_options) != 4:
-        raise ValueError("GLM quiz payload did not return four options")
+        raise ValueError("LLM quiz payload did not return four options")
 
     options: List[Dict[str, str]] = []
     seen_text = set()
@@ -259,27 +293,27 @@ def validate_quiz_item(payload: Dict[str, object], *, word: str, meaning: str) -
         option_text = str(option.get("text", "")).strip()
 
         if not option_text:
-            raise ValueError("GLM returned an empty answer option")
+            raise ValueError("LLM returned an empty answer option")
 
         normalized_option = normalize_text(option_text)
         if normalized_word in normalized_option:
-            raise ValueError("GLM returned an answer option containing the target word")
+            raise ValueError("LLM returned an answer option containing the target word")
         if normalized_option in seen_text:
-            raise ValueError("GLM returned duplicate answer options")
+            raise ValueError("LLM returned duplicate answer options")
 
         seen_text.add(normalized_option)
         options.append({"id": option_id, "text": option_text})
 
     correct_option_ids = [str(value).strip() for value in raw_correct_ids if str(value).strip()]
     if not correct_option_ids:
-        raise ValueError("GLM returned no correct option ids")
+        raise ValueError("LLM returned no correct option ids")
 
     valid_ids = {option["id"] for option in options}
     if any(option_id not in valid_ids for option_id in correct_option_ids):
-        raise ValueError("GLM returned invalid correct option ids")
+        raise ValueError("LLM returned invalid correct option ids")
 
     if selection_mode == "single" and len(correct_option_ids) != 1:
-        raise ValueError("GLM single-select question had multiple correct answers")
+        raise ValueError("LLM single-select question had multiple correct answers")
 
     correct_set = set(correct_option_ids)
     random.shuffle(options)
@@ -296,7 +330,7 @@ def validate_quiz_item(payload: Dict[str, object], *, word: str, meaning: str) -
         options=options,
         correct_option_ids=correct_option_ids,
         root_hint=root_hint,
-        source="glm",
+        source="llm",
     )
 
 
@@ -363,16 +397,16 @@ def main() -> None:
     api_key = first_env(
         env,
         os.environ,
-        "GLM_API_KEY",
-        "ZHIPU_API_KEY",
-        "ZHIPUAI_API_KEY",
+        "LLM_API_KEY",
     )
-    print(f"[DEBUG] GLM_API_KEY = {api_key}")
+
+    if not api_key:
+        log.warning("LLM_API_KEY not found — quiz questions will use fallback generator")
 
     port = int(os.environ.get("PORT", DEFAULT_PORT))
     handler = partial(MembeanHandler, directory=str(ROOT))
     server = ThreadingHTTPServer((DEFAULT_HOST, port), handler)
-    print(f"Membean Master running at http://{DEFAULT_HOST}:{port}")
+    log.info("Membean Master running at http://%s:%d", DEFAULT_HOST, port)
     server.serve_forever()
 
 

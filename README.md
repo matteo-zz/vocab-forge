@@ -1,14 +1,14 @@
-# Membean Master ✨
+# Vocab Forge ✨
 
 > Turn your Membean mistakes into mastery — AI-powered flashcards and timed quizzes that make vocabulary stick.
 
-Upload your Membean CSV export and practice the words you missed with a beautiful flashcard deck or a GLM-powered timed quiz that generates Membean-style questions on the fly.
+Upload your Membean CSV export and practice the words you missed with a beautiful flashcard deck or an LLM-powered timed quiz that generates Membean-style questions on the fly.
 
 ## Features
 
 - 📚 **Flashcard Mode** — Flip through words, meanings, and examples at your own pace
 - ⏱️ **Timed Quiz Mode** — AI-generated multiple-choice questions with a 20-second timer
-- 🤖 **GLM-Powered** — Uses the GLM-4 API to create realistic Membean-style distractors
+- 🤖 **LLM-Powered** — Uses an LLM API to create realistic Membean-style distractors
 - 🌙 **Dark Mode** — Toggle between light and dark themes
 - 📊 **Score Tracking** — See your accuracy and review missed words after each session
 
@@ -17,17 +17,17 @@ Upload your Membean CSV export and practice the words you missed with a beautifu
 1. Clone the repo and install dependencies:
 
 ```bash
-git clone https://github.com/<your-username>/membean-master.git
-cd membean-master
+git clone https://github.com/<your-username>/vocab-forge.git
+cd vocab-forge
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. Copy `.env.example` to `.env` and add your GLM API key:
+2. Copy `.env.example` to `.env` and add your LLM API key:
 
 ```env
-GLM_API_KEY=your_glm_api_key_here
+LLM_API_KEY=your_api_key_here
 ```
 
 3. Start the server:
@@ -53,9 +53,9 @@ Date,Word,Meaning,Example
 
 | Variable | Default | Description |
 |---|---|---|
-| `GLM_API_KEY` | — | Required for AI-generated quiz questions |
-| `GLM_MODEL` | `glm-4.7` | Model to use for question generation |
-| `GLM_API_BASE` | `https://api.z.ai/api/coding/paas/v4/chat/completions` | API endpoint |
+| `LLM_API_KEY` | — | Required for AI-generated quiz questions |
+| `LLM_MODEL` | `glm-4.7` | Model to use for question generation |
+| `LLM_API_BASE` | `https://api.z.ai/api/coding/paas/v4/chat/completions` | API endpoint |
 | `PORT` | `8000` | Server port |
 
 ## Deploy

@@ -251,7 +251,7 @@ function delimitedTextToRows(text, delimiter) {
 
 function renderDeckReadyState() {
   practiceTitle.textContent = `Deck ready with ${words.length} ${words.length === 1 ? "word" : "words"}`;
-  practiceStatus.textContent = "Choose Flash Card for review or Start Practice for a GLM-powered timed quiz.";
+  practiceStatus.textContent = "Choose Flash Card for review or Start Practice for an LLM-powered timed quiz.";
   modePlaceholderTitle.textContent = `Your ${words.length}-word deck is ready`;
   modePlaceholderText.textContent =
     "Flash Card opens the deck. Start Practice generates Membean-style questions, runs a 20-second timer, and tracks your score.";
@@ -489,11 +489,11 @@ async function loadCurrentQuizQuestion(sessionId = quizSessionId) {
   startQuizTimer();
   prefetchNextQuizQuestion(quizPointer + 1);
 
-  if (quizItem.source === "glm") {
+  if (quizItem.source === "llm") {
     practiceStatus.textContent = "Answer each definition question before the 20 second timer runs out.";
   } else {
     practiceStatus.textContent =
-      "GLM question generation is not available yet, so this round is using a local fallback question.";
+      "LLM question generation is not available yet, so this round is using a local fallback question.";
   }
 }
 
@@ -543,7 +543,7 @@ function normalizeApiQuizPayload(payload, entry) {
   const options = Array.isArray(payload.options) ? payload.options : [];
   const correctOptionIds = Array.isArray(payload.correct_option_ids) ? payload.correct_option_ids : [];
   const rootHint = String(payload.root_hint || "").trim() || entry.rootHint;
-  const source = payload.source === "glm" ? "glm" : "fallback";
+  const source = payload.source === "llm" ? "llm" : "fallback";
 
   if (!question || options.length !== 4 || !correctOptionIds.length) {
     return createLocalQuizQuestion(entry, "API payload was incomplete.");
