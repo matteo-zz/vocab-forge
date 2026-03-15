@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Membean Master</title>
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("membean-master-theme");
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (savedTheme) {
+          document.documentElement.dataset.theme = savedTheme;
+        } else if (prefersDark) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch (error) {
+        console.warn("Theme preference could not be restored.", error);
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar__header">
+          <div>
+            <p class="eyebrow">Study Setup</p>
+            <h1>Membean Master</h1>
+          </div>
+          <button id="themeToggleButton" class="theme-toggle" type="button" aria-label="Toggle color theme">
+            <span id="themeToggleIcon" aria-hidden="true">🌙</span>
+            <span id="themeToggleLabel">Dark</span>
+          </button>
+        </div>
+        <p class="sidebar__copy">
+          Upload the CSV from your Membean mistakes list and turn it into a quick, focused practice session.
+        </p>
+
+        <section class="upload-panel">
+          <div class="panel-heading">
+            <p class="panel-kicker">Upload</p>
+            <h2 class="panel-title">Bring in your missed words</h2>
+          </div>
+
+          <label class="upload-dropzone" for="csvFile">
+            <input id="csvFile" type="file" accept=".csv,text/csv" />
+            <span class="upload-icon">📚</span>
+            <span class="upload-title">Upload your CSV</span>
+            <span class="upload-subtitle">Headers: Date, Word, Meaning, Example</span>
+          </label>
+
+          <div class="upload-meta">
+            <p id="fileStatus">No file uploaded yet.</p>
+            <p id="wordCount">0 words loaded</p>
+          </div>
+
+          <div class="study-launchers">
+            <button id="startPracticeButton" class="primary-button" type="button" hidden>
+              Start Practice
+            </button>
+            <button id="flashCardButton" class="secondary-button" type="button" hidden>
+              Flash Card
+            </button>
+          </div>
+        </section>
+
+        <section class="tips-panel">
+          <p class="panel-kicker">How It Works</p>
+          <p class="tips-title">Simple and organized</p>
+          <ul>
+            <li>Use Flash Card mode to flip through meanings and examples.</li>
+            <li>Use Start Practice for a timed definition quiz with score tracking.</li>
+            <li>Review the end summary to see which words still need work.</li>
+          </ul>
+        </section>
+      </aside>
+
+      <main class="main-panel">
+        <section id="welcomeView" class="hero-card">
+          <div class="hero-copy">
+            <div class="hero-badge">Welcome</div>
+            <h2>Welcome to your Membean Master ✨</h2>
+            <p>
+              Drop in your CSV, then practice the words you missed on the standard Membean test with a cleaner flashcard deck.
+            </p>
+          </div>
+          <div class="hero-preview">
+            <div class="mini-card">
+              <span>Step 1</span>
+              <strong>Upload your export</strong>
+              <p>Add the file with Date, Word, Meaning, and Example columns.</p>
+            </div>
+            <div class="mini-card">
+              <span>Step 2</span>
+              <strong>Start a session</strong>
+              <p>Tap into a focused practice flow once your deck is ready.</p>
+            </div>
+            <div class="mini-card">
+              <span>Step 3</span>
+              <strong>Review and repeat</strong>
+              <p>Flip, shuffle, and cycle until the tough words feel easy.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="practiceView" class="practice-view">
+          <div class="practice-header">
+            <div>
+              <p class="eyebrow">Practice Deck</p>
+              <h2 id="practiceTitle">Upload a file to unlock your review deck</h2>
+              <p id="practiceStatus" class="practice-status">
+                Your words, meanings, and examples will stay organized here.
+              </p>
+            </div>
+          </div>
+
+          <section id="modePlaceholder" class="mode-placeholder">
+            <div class="mode-placeholder__badge">Choose a mode</div>
+            <h3 id="modePlaceholderTitle">Upload a file to unlock your review deck</h3>
+            <p id="modePlaceholderText">
+              Once your CSV is loaded, use Flash Card for card review or Start Practice for a timed quiz.
+            </p>
+          </section>
+
+          <section id="flashcardMode" class="study-mode" hidden>
+            <div class="practice-layout">
+              <div class="practice-summary">
+                <div class="summary-card">
+                  <span class="summary-label">Progress</span>
+                  <strong id="progressLabel">Card 0 of 0</strong>
+                </div>
+                <div class="summary-card">
+                  <span class="summary-label">Ready State</span>
+                  <strong id="deckStatus">Upload your CSV to begin.</strong>
+                </div>
+                <div class="progress-wrap">
+                  <div class="progress-bar">
+                    <span id="progressFill"></span>
+                  </div>
+                </div>
+              </div>
+
+              <article id="flashcard" class="flashcard" tabindex="0" role="button" aria-label="Flip flashcard">
+                <div class="flashcard__inner">
+                  <div class="flashcard__face flashcard__face--front">
+                    <p class="flashcard__kicker">Word</p>
+                    <h3 id="cardWord">Upload a file to begin</h3>
+                    <p id="cardDate" class="flashcard__date"></p>
+                    <p id="cardHint" class="flashcard__hint">Click to reveal the meaning and example.</p>
+                  </div>
+                  <div class="flashcard__face flashcard__face--back">
+                    <section class="flashcard__back-block">
+                      <p class="flashcard__kicker">Meaning</p>
+                      <div class="flashcard__back-scroll flashcard__back-scroll--meaning">
+                        <p id="cardMeaning" class="flashcard__definition">Your definition will appear here.</p>
+                      </div>
+                    </section>
+                    <section class="flashcard__back-block">
+                      <p class="flashcard__kicker flashcard__kicker--example">Example</p>
+                      <div class="flashcard__back-scroll flashcard__back-scroll--example">
+                        <p id="cardExample" class="flashcard__example"></p>
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <div class="practice-controls">
+              <button id="shuffleButton" class="secondary-button" type="button" disabled>Shuffle</button>
+              <button id="prevButton" class="secondary-button" type="button" disabled>Previous</button>
+              <button id="flipButton" class="primary-button" type="button" disabled>Flip Card</button>
+              <button id="nextButton" class="primary-button" type="button" disabled>Next Word</button>
+              <button id="resetButton" class="secondary-button" type="button" disabled>Start Over</button>
+            </div>
+          </section>
+
+          <section id="quizMode" class="study-mode" hidden>
+            <div class="quiz-layout">
+              <div class="quiz-summary">
+                <div class="summary-card">
+                  <span class="summary-label">Question</span>
+                  <strong id="quizProgressLabel">0 of 0</strong>
+                </div>
+                <div class="summary-card">
+                  <span class="summary-label">Score</span>
+                  <strong id="quizScoreLabel">0 correct</strong>
+                </div>
+                <div class="summary-card">
+                  <span class="summary-label">Accuracy</span>
+                  <strong id="quizAccuracyLabel">0%</strong>
+                </div>
+                <div class="summary-card summary-card--timer">
+                  <span class="summary-label">Timer</span>
+                  <strong id="quizTimerLabel">20s</strong>
+                  <div class="timer-bar">
+                    <span id="quizTimerFill"></span>
+                  </div>
+                </div>
+              </div>
+
+              <section class="quiz-card">
+                <div class="quiz-card__intro">
+                  <p class="flashcard__kicker">Quiz Word</p>
+                  <h3 id="quizWord" class="quiz-word">Ready</h3>
+                  <p id="quizPrompt" class="quiz-prompt">Your timed definition question will appear here.</p>
+                  <p id="quizInstruction" class="quiz-instruction">Choose one answer.</p>
+                </div>
+
+                <div id="quizOptions" class="quiz-options"></div>
+
+                <div id="quizFeedback" class="quiz-feedback" hidden>
+                  <p id="quizFeedbackTitle" class="quiz-feedback__title"></p>
+                  <p id="quizFeedbackBody" class="quiz-feedback__body"></p>
+                  <p id="quizHint" class="quiz-feedback__hint"></p>
+                </div>
+
+                <div class="quiz-controls">
+                  <button id="submitAnswerButton" class="primary-button" type="button" disabled>
+                    Submit Answer
+                  </button>
+                  <button id="nextQuestionButton" class="secondary-button" type="button" hidden>
+                    Next Question
+                  </button>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section id="resultsMode" class="study-mode" hidden>
+            <div class="results-card">
+              <div class="results-hero">
+                <div class="mode-placeholder__badge">Quiz Complete</div>
+                <h3 id="resultsHeadline">You finished the deck</h3>
+                <p id="resultsSummary">
+                  Your final score and every answered question will appear here.
+                </p>
+              </div>
+
+              <div class="results-stats">
+                <div class="summary-card">
+                  <span class="summary-label">Final Score</span>
+                  <strong id="resultsScore">0 / 0</strong>
+                </div>
+                <div class="summary-card">
+                  <span class="summary-label">Accuracy</span>
+                  <strong id="resultsAccuracy">0%</strong>
+                </div>
+                <div class="summary-card">
+                  <span class="summary-label">Correct</span>
+                  <strong id="resultsCorrect">0</strong>
+                </div>
+                <div class="summary-card">
+                  <span class="summary-label">Needs Review</span>
+                  <strong id="resultsIncorrect">0</strong>
+                </div>
+              </div>
+
+              <div class="results-actions">
+                <button id="restartQuizButton" class="primary-button" type="button">Retry Quiz</button>
+                <button id="resultsFlashCardButton" class="secondary-button" type="button">Open Flash Cards</button>
+              </div>
+
+              <div id="resultsList" class="results-list"></div>
+            </div>
+          </section>
+
+          <div id="balloonBurst" class="balloon-burst" aria-hidden="true"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
