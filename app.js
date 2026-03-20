@@ -410,8 +410,8 @@ function renderQuizIdleState() {
 }
 
 function renderQuizLoadingState(wordLabel) {
-  quizWord.textContent = wordLabel;
-  quizPrompt.textContent = `Generating a Membean-style question for "${wordLabel}"...`;
+  quizWord.textContent = "???";
+  quizPrompt.textContent = "Generating a Membean-style question...";
   quizInstruction.textContent = "Please wait a moment.";
   quizTimerLabel.textContent = "--";
   quizTimerFill.style.width = "0%";

@@ -5,14 +5,14 @@ import random
 import re
 import time
 from dataclasses import dataclass
-from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional
 
 from dotenv import dotenv_values
 from urllib.error import HTTPError, URLError
+from urllib.parse import unquote, urlsplit
 from urllib.request import Request, urlopen
 
 logging.basicConfig(
@@ -28,6 +28,12 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
 DEFAULT_LLM_API_BASE = "https://api.z.ai/api/coding/paas/v4/chat/completions"
 DEFAULT_LLM_MODEL = "glm-4.7"
+PUBLIC_FILES = {
+    "/": ROOT / "index.html",
+    "/index.html": ROOT / "index.html",
+    "/app.js": ROOT / "app.js",
+    "/styles.css": ROOT / "styles.css",
+}
 
 
 @dataclass
@@ -41,6 +47,32 @@ class QuizItem:
 
 
 class MembeanHandler(SimpleHTTPRequestHandler):
+    def send_head(self):
+        request_path = unquote(urlsplit(self.path).path)
+        normalized_path = normalize_request_path(request_path)
+        if normalized_path is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return None
+
+        static_file = PUBLIC_FILES.get(normalized_path)
+        if static_file is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return None
+
+        try:
+            file_handle = static_file.open("rb")
+        except OSError:
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return None
+
+        file_stat = os.fstat(file_handle.fileno())
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", self.guess_type(str(static_file)))
+        self.send_header("Content-Length", str(file_stat.st_size))
+        self.send_header("Last-Modified", self.date_time_string(file_stat.st_mtime))
+        self.end_headers()
+        return file_handle
+
     def do_POST(self) -> None:
         if self.path != "/api/generate-quiz-question":
             self.send_error(HTTPStatus.NOT_FOUND, "Unknown API route")
@@ -74,8 +106,8 @@ class MembeanHandler(SimpleHTTPRequestHandler):
             "LLM_API_KEY"
         )
 
-        api_base = first_env(env, os.environ, "LLM_API_BASE", "GLM_API_BASE") or DEFAULT_LLM_API_BASE
-        model = first_env(env, os.environ, "LLM_MODEL", "GLM_MODEL") or DEFAULT_LLM_MODEL
+        api_base = first_env(env, os.environ, "LLM_API_BASE") or DEFAULT_LLM_API_BASE
+        model = first_env(env, os.environ, "LLM_MODEL") or DEFAULT_LLM_MODEL
         log.info("LLM request — word=%r, model=%s, api_base=%s", word, model, api_base)
 
         if api_key:
@@ -134,6 +166,18 @@ def first_env(dotenv_values: Dict[str, str], environ: Dict[str, str], *keys: str
     return None
 
 
+def normalize_request_path(request_path: str) -> Optional[str]:
+    parts = []
+    for part in PurePosixPath(request_path or "/").parts:
+        if part == "/":
+            continue
+        if part in {".", ".."} or part.startswith("."):
+            return None
+        parts.append(part)
+
+    return "/" if not parts else "/" + "/".join(parts)
+
+
 def generate_with_llm(
     *,
     word: str,
@@ -180,8 +224,12 @@ def generate_with_llm(
 
     t0 = time.monotonic()
     try:
-        with urlopen(request, timeout=45) as response:
+        with urlopen(request, timeout=90) as response:
             raw_response = response.read().decode("utf-8")
+    except TimeoutError as error:
+        elapsed = time.monotonic() - t0
+        log.error("LLM connection timed out after %.2fs", elapsed)
+        raise RuntimeError("LLM API request timed out") from error
     except HTTPError as error:
         elapsed = time.monotonic() - t0
         error_body = error.read().decode("utf-8", errors="ignore")
@@ -404,8 +452,7 @@ def main() -> None:
         log.warning("LLM_API_KEY not found — quiz questions will use fallback generator")
 
     port = int(os.environ.get("PORT", DEFAULT_PORT))
-    handler = partial(MembeanHandler, directory=str(ROOT))
-    server = ThreadingHTTPServer((DEFAULT_HOST, port), handler)
+    server = ThreadingHTTPServer((DEFAULT_HOST, port), MembeanHandler)
     log.info("Membean Master running at http://%s:%d", DEFAULT_HOST, port)
     server.serve_forever()
 
