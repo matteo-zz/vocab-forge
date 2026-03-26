@@ -537,7 +537,11 @@ async function getQuizQuestionForWord(entry) {
 
   quizQuestionRequests.set(entry.id, requestPromise);
   const question = await requestPromise;
-  quizQuestionCache.set(entry.id, question);
+  
+  if (question.source === "llm") {
+    quizQuestionCache.set(entry.id, question);
+  }
+  
   return question;
 }
 
