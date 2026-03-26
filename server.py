@@ -39,6 +39,7 @@ PUBLIC_FILES = {
 @dataclass
 class QuizItem:
     question: str
+    question_type: str
     selection_mode: str
     options: List[Dict[str, str]]
     correct_option_ids: List[str]
@@ -139,7 +140,8 @@ class MembeanHandler(SimpleHTTPRequestHandler):
 
         self.send_json(HTTPStatus.OK, {
             "question": quiz_item.question,
-            "selection_mode": quiz_item.selection_mode,
+            "question_type": quiz_item.question_type,
+            "selection_mode": quiz_item.selection_mode,            
             "options": quiz_item.options,
             "correct_option_ids": quiz_item.correct_option_ids,
             "root_hint": quiz_item.root_hint,
@@ -187,21 +189,31 @@ def generate_with_llm(
     api_base: str,
     model: str,
 ) -> QuizItem:
-    prompt = build_llm_prompt(word=word, meaning=meaning, example=example)
+    question_type = random.choice(["definition", "fill_in_the_blank"])
+    prompt = build_llm_prompt(word=word, meaning=meaning, example=example, question_type=question_type)
+    
+    system_content = (
+        "You create high-quality vocabulary quiz items in the style of Membean. "
+        "Return strict JSON only. Favor short behavioral or scenario-based choices instead "
+        "of dictionary sentences."
+    )
+    if question_type == "definition":
+        system_content = (
+            "You create high-quality vocabulary quiz items in the style of Membean. "
+            "Return strict JSON only. Avoid repeating the target word or its obvious family "
+            "inside answer options. Favor short behavioral or scenario-based choices instead "
+            "of dictionary sentences."
+        )
+
     request_body = {
         "model": model,
         "stream": False,
-        "temperature": 0.4,
+        "temperature": 0.0,
         "max_tokens": 4096,
         "messages": [
             {
                 "role": "system",
-                "content": (
-                    "You create high-quality vocabulary quiz items in the style of Membean. "
-                    "Return strict JSON only. Avoid repeating the target word or its obvious family "
-                    "inside answer options. Favor short behavioral or scenario-based choices instead "
-                    "of dictionary sentences."
-                ),
+                "content": system_content,
             },
             {
                 "role": "user",
@@ -259,16 +271,50 @@ def generate_with_llm(
     log.debug("LLM content: %s", content[:1000])
     parsed = extract_json_object(content)
     log.debug("LLM parsed JSON: %s", json.dumps(parsed, indent=2, ensure_ascii=False))
-    quiz_item = validate_quiz_item(parsed, word=word, meaning=meaning)
+    quiz_item = validate_quiz_item(parsed, word=word, meaning=meaning, question_type=question_type)
     log.info(
-        "LLM quiz item — word=%r, question=%r, source=%s, correct=%s",
-        word, quiz_item.question[:80], quiz_item.source, quiz_item.correct_option_ids,
+        "LLM quiz item — word=%r, type=%s, question=%r, source=%s, correct=%s",
+        word, quiz_item.question_type, quiz_item.question[:80], quiz_item.source, quiz_item.correct_option_ids,
     )
     return quiz_item
 
 
-def build_llm_prompt(*, word: str, meaning: str, example: str) -> str:
+def build_llm_prompt(*, word: str, meaning: str, example: str, question_type: str) -> str:
     example_text = example or "No example sentence was provided."
+    if question_type == "fill_in_the_blank":
+        return f"""
+Create a Membean-style multiple choice vocabulary question.
+
+Target word: {word}
+Reference meaning: {meaning}
+Reference example: {example_text}
+
+Requirements:
+1. Write the question stem as a natural sentence with a blank (represented by "______") where the target word should go. The sentence must provide enough context clues to figure out the missing word.
+2. The correct option MUST be exactly the target word ("{word}").
+3. Distractors must be other English vocabulary words that are plausible but clearly wrong in the context of the sentence. Do not use close morphological variants of the target word for distractors.
+4. Produce 4 answer options total.
+5. Use "single" selection_mode.
+6. Give a short root/stem hint for the target word. If unsure, give the most likely stem and say it is likely.
+7. Keep option text concise (just words or short phrases).
+8. The sentence stem should NOT contain the target word.
+
+Return strict JSON with this schema:
+{{
+  "question": "string",
+  "selection_mode": "single",
+  "options": [
+    {{"id": "A", "text": "target word"}},
+    {{"id": "B", "text": "distractor word"}},
+    {{"id": "C", "text": "distractor word"}},
+    {{"id": "D", "text": "distractor word"}}
+  ],
+  "correct_option_ids": ["A"],
+  "root_hint": "string",
+  "question_type": "fill_in_the_blank"
+}}
+""".strip()
+
     return f"""
 Create a Membean-style multiple choice vocabulary question.
 
@@ -289,6 +335,7 @@ Requirements:
 7. Distractors should be plausible but clearly wrong.
 8. Give a short root/stem hint for the word. If unsure, give the most likely stem and say it is likely.
 9. Keep option text concise and readable.
+10. The correct option MUST strictly match the question logically and be an accurate paraphrase of the reference meaning.
 
 Return strict JSON with this schema:
 {{
@@ -301,7 +348,8 @@ Return strict JSON with this schema:
     {{"id": "D", "text": "string"}}
   ],
   "correct_option_ids": ["A"],
-  "root_hint": "string"
+  "root_hint": "string",
+  "question_type": "definition"
 }}
 """.strip()
 
@@ -320,7 +368,7 @@ def extract_json_object(text: str) -> Dict[str, object]:
     return json.loads(stripped[start:end + 1])
 
 
-def validate_quiz_item(payload: Dict[str, object], *, word: str, meaning: str) -> QuizItem:
+def validate_quiz_item(payload: Dict[str, object], *, word: str, meaning: str, question_type: str = "definition") -> QuizItem:
     question = str(payload.get("question", "")).strip()
     selection_mode = str(payload.get("selection_mode", "single")).strip().lower()
     raw_options = payload.get("options", [])
@@ -345,7 +393,7 @@ def validate_quiz_item(payload: Dict[str, object], *, word: str, meaning: str) -
             raise ValueError("LLM returned an empty answer option")
 
         normalized_option = normalize_text(option_text)
-        if normalized_word in normalized_option:
+        if question_type != "fill_in_the_blank" and normalized_word in normalized_option:
             raise ValueError("LLM returned an answer option containing the target word")
         if normalized_option in seen_text:
             raise ValueError("LLM returned duplicate answer options")
@@ -375,6 +423,7 @@ def validate_quiz_item(payload: Dict[str, object], *, word: str, meaning: str) -
 
     return QuizItem(
         question=question,
+        question_type=question_type,
         selection_mode=selection_mode,
         options=options,
         correct_option_ids=correct_option_ids,
@@ -399,6 +448,7 @@ def create_fallback_quiz_item(*, word: str, meaning: str, example: str, reason: 
 
     return QuizItem(
         question=f'Which definition best matches "{word}"?',
+        question_type="definition",
         selection_mode="single",
         options=options,
         correct_option_ids=["A"],

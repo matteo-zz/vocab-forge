@@ -456,6 +456,7 @@ async function loadCurrentQuizQuestion(sessionId = quizSessionId) {
   currentQuestion = {
     entry,
     word: entry.word,
+    questionType: quizItem.questionType || "definition",
     prompt: quizItem.question,
     multiple: quizItem.selectionMode === "multi",
     options: quizItem.options.map((option) => ({
@@ -473,7 +474,7 @@ async function loadCurrentQuizQuestion(sessionId = quizSessionId) {
   updateQuizSummary();
   updateQuizTimerUi();
 
-  quizWord.textContent = currentQuestion.word;
+  quizWord.textContent = currentQuestion.questionType === "fill_in_the_blank" ? "Fill in the blank" : currentQuestion.word;
   quizPrompt.textContent = currentQuestion.prompt;
   quizInstruction.textContent = currentQuestion.multiple
     ? "Select all correct answers, then submit."
@@ -526,7 +527,10 @@ async function getQuizQuestionForWord(entry) {
       const payload = await response.json();
       return normalizeApiQuizPayload(payload, entry);
     })
-    .catch(() => createLocalQuizQuestion(entry, "API request failed."))
+    .catch((error) => {
+      console.error("Quiz Generation Error on frontend:", error);
+      return createLocalQuizQuestion(entry, "API request failed.");
+    })
     .finally(() => {
       quizQuestionRequests.delete(entry.id);
     });
@@ -539,6 +543,7 @@ async function getQuizQuestionForWord(entry) {
 
 function normalizeApiQuizPayload(payload, entry) {
   const question = String(payload.question || "").trim();
+  const questionType = String(payload.question_type || "definition").trim();
   const selectionMode = String(payload.selection_mode || "single").trim().toLowerCase();
   const options = Array.isArray(payload.options) ? payload.options : [];
   const correctOptionIds = Array.isArray(payload.correct_option_ids) ? payload.correct_option_ids : [];
@@ -546,6 +551,7 @@ function normalizeApiQuizPayload(payload, entry) {
   const source = payload.source === "llm" ? "llm" : "fallback";
 
   if (!question || options.length !== 4 || !correctOptionIds.length) {
+    console.error("Frontend fallback triggered: API payload was incomplete.", payload);
     return createLocalQuizQuestion(entry, "API payload was incomplete.");
   }
 
@@ -556,7 +562,7 @@ function normalizeApiQuizPayload(payload, entry) {
     const text = String(option.text || "").trim();
     const normalized = normalizeText(text);
 
-    if (!text || normalized.includes(normalizedWord) || seen.has(normalized)) {
+    if (!text || (questionType !== "fill_in_the_blank" && normalized.includes(normalizedWord)) || seen.has(normalized)) {
       throw new Error("Generated option failed validation.");
     }
 
@@ -570,11 +576,13 @@ function normalizeApiQuizPayload(payload, entry) {
     .filter((optionId) => validOptionIds.has(optionId));
 
   if (!cleanedCorrectIds.length) {
+    console.error("Frontend fallback triggered: API returned invalid correct answers.", payload);
     return createLocalQuizQuestion(entry, "API returned invalid correct answers.");
   }
 
   return {
     question,
+    questionType,
     selectionMode: selectionMode === "multi" ? "multi" : "single",
     options: normalizedOptions,
     correctOptionIds: cleanedCorrectIds,
@@ -628,6 +636,7 @@ function createLocalQuizQuestion(entry, reason = "") {
 
   return {
     question: `Which definition best matches "${entry.word}"?`,
+    questionType: "definition",
     selectionMode: correctAnswers.length > 1 ? "multi" : "single",
     options: shuffledOptions.map((option) => ({ id: option.id, text: option.text })),
     correctOptionIds: shuffledOptions.filter((option) => option.isOriginallyCorrect).map((option) => option.id),
